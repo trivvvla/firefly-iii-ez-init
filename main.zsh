@@ -9,25 +9,29 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 BOLD='\033[1m'
+YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Function to print in bold
 print_bold() {
-    local text=$1
-    echo -e "${BOLD}${text}${NC}"
+    echo -e "${BOLD}$1${NC}"
 }
 
 # Function to print success message
 print_success() {
-    local message=$1
-    echo -e "${GREEN}${message}${NC}"
+    echo -e "${GREEN}$1${NC}"
+}
+
+# Function to print error message
+print_error() {
+    echo -e "${RED}$1${NC}"
 }
 
 # Function to print the banner
 print_banner() {
-    clear
+    printf "\n%.0s" {1..3}
     print_bold "Firefly III Configuration Script Started"
-    echo
+    printf "\n%.0s" {1..1}
 }
 
 # Function to print the menu
@@ -42,28 +46,74 @@ print_menu() {
 }
 
 # Default variable values
-db_password="test_pwd"
-user_mail="naabb+firefly@pm.me"
-random_32_chars="RNQdCmtw5TsrA9yBKMWDLSakPg3FXnYc"
+declare -A config_values=(
+    [db_password]="test_pwd"
+    [user_mail]="mail@mail.com"
+    [random_32_chars]="RNQdCmtw5TsrA9yBKMWDLSakPg3FXnYc"
+)
 
 # Function to update variable values
+# Function to update variable values with validation
 update_variable_values() {
-    echo -n "${YELLOW}Enter DB password [default: ${NC}$db_password${YELLOW}]: ${NC}"
-    read new_db_password
-    if [[ -n $new_db_password ]]; then
-        db_password=$new_db_password
-    fi
+    local prompts=("DB password" "user email" "random 32 characters string")
+    local keys=("db_password" "user_mail" "random_32_chars")
+    local new_value
 
-    echo -n "${YELLOW}Enter user email [default: ${NC}$user_mail${YELLOW}]: ${NC}"
-    read new_user_mail
-    if [[ -n $new_user_mail ]]; then
-        user_mail=$new_user_mail
-    fi
+    for i in {1..3}; do
+        while true; do
+            echo -n "${YELLOW}Enter ${prompts[i]} [default: ${NC}${config_values[${keys[i]}]}${YELLOW}]: ${NC}"
+            read new_value
+            case $i in
+                2) # Validate user email
+                    if [[ -n $new_value ]] && ! [[ $new_value =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}$ ]]; then
+                        echo "${RED}Invalid email format. Please try again.${NC}"
+                        continue
+                    fi
+                    ;;
+                3) # Validate random 32 characters string
+                    if [[ -n $new_value ]] && ! [[ $new_value =~ ^.{32}$ ]]; then
+                        echo "${RED}The string must be exactly 32 characters long. Please try again.${NC}"
+                        continue
+                    fi
+                    ;;
+            esac
+            # If input is empty, use default value
+            if [[ -z $new_value ]]; then
+                echo "No change made, using default value: ${config_values[${keys[i-1]}]}"
+                break
+            else
+                config_values[${keys[i-1]}]=$new_value
+                echo "Value set to: $new_value"
+                break
+            fi
+        done
+    done
+    print_success "Variable values updated successfully."
+}
 
-    echo -n "${YELLOW}Enter random 32 characters string [default: ${NC}$random_32_chars${YELLOW}]: ${NC}"
-    read new_random_32_chars
-    if [[ -n $new_random_32_chars ]]; then
-        random_32_chars=$new_random_32_chars
+# Function to check for dependencies
+check_dependencies() {
+    local missing=()
+    for cmd in docker-compose curl sed; do
+        if ! command -v $cmd &> /dev/null; then
+            missing+=($cmd)
+        fi
+    done
+    if (( ${#missing[@]} > 0 )); then
+        print_error "Missing dependencies: ${missing[*]}. Please install them and try again."
+        exit 1
+    fi
+}
+
+# Function to perform sed operations
+perform_sed() {
+    local file=$1
+    local search=$2
+    local replace=$3
+    if [[ "$(uname)" == "Darwin" ]]; then
+        sed -i '' "s|$search|$replace|g" "$file" || { print_error "Failed to edit $file"; exit 1; }
+    else
+        sed -i "s|$search|$replace|g" "$file" || { print_error "Failed to edit $file"; exit 1; }
     fi
 }
 
@@ -93,14 +143,6 @@ init_and_update_files() {
         download_files "$url" "$filename"
     done
 
-    # Function to perform sed operations
-    perform_sed() {
-        local file=$1
-        local search=$2
-        local replace=$3
-        sed -i "s|$search|$replace|g" "$file" || { echo "Failed to edit $file"; exit 1; }
-    }
-
     # Update configuration files
     perform_sed "./config/.env" "DB_PASSWORD=secret_firefly_password" "DB_PASSWORD=$db_password"
     perform_sed "./config/.env" "SITE_OWNER=mail@example.com" "SITE_OWNER=$user_mail"
@@ -129,7 +171,17 @@ manual_steps() {
     echo "https://docs.firefly-iii.org/how-to/data-importer/installation/docker/"
 }
 
+# Function to clean up on exit
+cleanup() {
+    print_bold "Cleaning up before exit..."
+    # Add any necessary cleanup commands here
+}
+
+# Set trap for cleanup on exit
+trap cleanup EXIT
+
 # Main program
+check_dependencies
 while true; do
     print_banner
     print_menu
@@ -138,7 +190,6 @@ while true; do
     case $choice in
         1)
             update_variable_values
-            print_success "Variable values updated successfully."
             ;;
         2)
             init_and_update_files
@@ -156,10 +207,11 @@ while true; do
             exit 0
             ;;
         *)
-            echo "${RED}Invalid option selected.${NC}"
+            print_error "Invalid option selected."
             ;;
     esac
     # Wait for user to acknowledge before re-displaying the menu
     echo -n "Press any key to continue..."
     read -k1 -s
+    printf "\n%.0s" {1..2} # Add spacing instead of clearing the screen
 done
