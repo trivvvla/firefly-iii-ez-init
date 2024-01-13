@@ -35,3 +35,6 @@ The script is well-structured and covers a range of functionalities for configur
 
 10. ✅ Exit Traps:
 - ✅ Use traps to clean up in case the script exits unexpectedly or is terminated.
+
+11. Setup automated backup ?
+    - Save the database elsewhere ?
